@@ -1,0 +1,1 @@
+munprotect and then munprotect should NOT cause seg fault on legal access.

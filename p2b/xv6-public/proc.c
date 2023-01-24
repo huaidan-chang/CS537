@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "pstat.h"
 
 struct {
   struct spinlock lock;
@@ -88,6 +89,8 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->tickets = 1;
+  p->ticks = 0;
 
   release(&ptable.lock);
 
@@ -198,6 +201,8 @@ fork(void)
   }
   np->sz = curproc->sz;
   np->parent = curproc;
+  //a child process inherits the same number of tickets as its parents
+  np->tickets = curproc->tickets;
   *np->tf = *curproc->tf;
 
   // Clear %eax so that fork returns 0 in the child.
@@ -332,24 +337,82 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+    // process num in the high queue
+    int highPriSize = 0;
+    // process num in the low queue
+    int lowPriSize = 0;
+    // processes in the high queue
+    struct proc* high[NPROC];
+    // processes in the low queue
+    struct proc* low[NPROC];
+    int i = 0;
+    int j = 0;
+    struct proc* chosenP = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
-
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+      if(p->tickets == 1){
+        highPriSize++;
+        high[i] = p;
+        i++;
+      } else {
+        lowPriSize++;
+        low[j] = p;
+        j++;
+      }
     }
+    if(highPriSize > 0){
+      for(int k = 0; k < highPriSize; k++){
+        // Switch to chosen process.  It is the process's job
+        // to release ptable.lock and then reacquire it
+        // before jumping back to us.
+        chosenP = high[k];
+        if(chosenP->state != RUNNABLE)
+          continue;
+        c->proc = chosenP;
+        switchuvm(chosenP);
+        chosenP->state = RUNNING;
+        chosenP->ticks++;
+        swtch(&(c->scheduler), chosenP->context);
+        switchkvm();
+
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+      }
+    } else {
+      for(int l = 0; l < lowPriSize; l++){
+        // Switch to chosen process.  It is the process's job
+        // to release ptable.lock and then reacquire it
+        // before jumping back to us.
+        chosenP = low[l];
+        if(chosenP->state != RUNNABLE)
+          continue;
+        c->proc = chosenP;
+        switchuvm(chosenP);
+        chosenP->state = RUNNING;
+        chosenP->ticks++;
+        swtch(&(c->scheduler), chosenP->context);
+        switchkvm();
+
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+      }
+    }
+    // Switch to chosen process.  It is the process's job
+    // to release ptable.lock and then reacquire it
+    // before jumping back to us.
+    // c->proc = p;
+    // switchuvm(p);
+    // p->state = RUNNING;
+
+    // swtch(&(c->scheduler), p->context);
+    // switchkvm();
+
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
+    // c->proc = 0;
     release(&ptable.lock);
 
   }
@@ -531,4 +594,46 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+//This routine returns some information about all running processes, 
+//including how many times each has been chosen to run and the process ID of each. 
+int
+sys_getpinfo(void){
+  struct pstat *pstat;
+  if(argptr(0, (void*)&pstat, sizeof(*pstat)) < 0){
+    return -1;
+  }
+  if(!pstat){
+    return -1;
+  }
+  struct proc *p;
+
+  for(int i = 0; i < NPROC; i++){
+    p = &ptable.proc[i];
+    pstat->pid[i] = p->pid;
+    pstat->inuse[i] = p->state != UNUSED;
+    pstat->tickets[i] = p->tickets;
+    pstat->ticks[i] = p->ticks;
+  }
+  return 0;
+}
+
+//sets the number of tickets of the calling process.
+//if a process sets its ticket value to 1 it has high priority; 
+//otherwise, a process should have a ticket value of 0 and thus have low priority. 
+//All other ticket values are not valid; 1 (high priority) should be the default.
+int
+sys_settickets(void){
+  int n;
+  if(argint(0, &n) < 0){
+    return -1;
+  }
+
+  if(n != 0 && n != 1){
+    return -1;
+  }
+  struct proc *p = myproc();
+  p->tickets = n;
+  return 0;
 }

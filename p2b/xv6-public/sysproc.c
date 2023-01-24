@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+#include "pstat.h"
 
 int
 sys_fork(void)
@@ -88,4 +89,28 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// Calling mprotect()should change the protection bits of 
+// the page range starting at addr and of len pages to be read only.
+int
+sys_mprotect(void){
+  void *addr;
+  int len;
+  if(argptr(0, (void*)&addr, sizeof(addr)) < 0 || argint(1, &len) < 0){
+    return -1;
+  }
+
+  return mprotect(addr, len);
+}
+
+int
+sys_munprotect(void){
+  void *addr;
+  int len;
+  if(argptr(0, (void*)&addr, sizeof(addr)) < 0 || argint(1, &len) < 0){
+    return -1;
+  }
+
+  return munprotect(addr, len);
 }

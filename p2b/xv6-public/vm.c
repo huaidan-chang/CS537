@@ -322,7 +322,7 @@ copyuvm(pde_t *pgdir, uint sz)
 
   if((d = setupkvm()) == 0)
     return 0;
-  for(i = 0; i < sz; i += PGSIZE){
+  for(i = PGSIZE; i < sz; i += PGSIZE){
     if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
     if(!(*pte & PTE_P))
@@ -392,3 +392,70 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 //PAGEBREAK!
 // Blank page.
 
+int
+mprotect(void *addr, int len){
+  // addr is not page aligned
+  if((uint)addr % PGSIZE != 0){
+    return -1;
+  }
+
+  // len is less than or equal to zero, return -1 
+  if(len <= 0){
+    return -1;
+  }
+
+  struct proc *p = myproc();
+
+  // addr points to a region that is not currently a part of the address space
+  for(int i = 1; i <= len; i++){
+    if(((uint) addr + i*PGSIZE) > p->sz){
+      return -1;
+    }
+  }
+
+  pte_t *pte;
+  for(int j = 0; j < len; j++){
+    // get the PTE addr
+    pte = walkpgdir(p->pgdir, addr + j*PGSIZE, 0);
+    // turn the Writeable bit to 0 to make the PTE read-only
+    *pte = *pte & (~PTE_W);
+  }
+  // updating the CR3 register to guarantees 
+  // that PTE updates will be used upon subsequent accesses.
+  lcr3(V2P(p->pgdir));
+  return 0;
+}
+
+int
+munprotect(void *addr, int len){
+  // addr is not page aligned
+  if((uint)addr % PGSIZE != 0){
+    return -1;
+  }
+
+  // len is less than or equal to zero, return -1 
+  if(len <= 0){
+    return -1;
+  }
+
+  struct proc *p = myproc();
+
+  // addr points to a region that is not currently a part of the address space
+  for(int i = 1; i <= len; i++){
+    if(((uint) addr + i*PGSIZE) > p->sz){
+      return -1;
+    }
+  }
+
+  pte_t *pte;
+  for(int j = 0; j < len; j++){
+    // get the PTE addr
+    pte = walkpgdir(p->pgdir, addr + j*PGSIZE, 0);
+    // turn the Writeable bit to 1 to make the PTE both readable and writeable
+    *pte = *pte | PTE_W;
+  }
+  // updating the CR3 register to guarantees 
+  // that PTE updates will be used upon subsequent accesses.
+  lcr3(V2P(p->pgdir));
+  return 0;
+}
