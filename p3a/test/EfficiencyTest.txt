@@ -1,0 +1,5 @@
+For the efficiency test, the TA's will run your code on an isolated VM, so that the
+environment is the same for everyone. Your implementation will be compared to a baseline
+implementation written by the TA's that did not go through many optimizations. The number
+of entries in the four files we will be using for comparison are: 10000, 500000, 499999, and
+500001. Maybe these sizes will hint towards potential optimizations you could make... You can use the python file to generate tests with correctly sorted outputs to test your own implementation if you so choose.
