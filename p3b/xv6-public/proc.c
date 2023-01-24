@@ -111,7 +111,7 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
-
+  p->tcount = 0;
   return p;
 }
 
@@ -170,6 +170,14 @@ growproc(int n)
       return -1;
   }
   curproc->sz = sz;
+
+  // updated address space size in threads
+  struct proc *p;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p != curproc && p->pgdir == curproc->pgdir){
+        p->sz = sz;
+      }
+   }
   switchuvm(curproc);
   return 0;
 }
@@ -281,7 +289,7 @@ wait(void)
     // Scan through table looking for exited children.
     havekids = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->parent != curproc)
+      if(p->parent != curproc || p->pgdir == curproc->pgdir)
         continue;
       havekids = 1;
       if(p->state == ZOMBIE){
@@ -289,7 +297,10 @@ wait(void)
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
-        freevm(p->pgdir);
+        // if this is last reference to it then free the address space
+        if(p->tcount == 0){
+          freevm(p->pgdir);
+        }
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
@@ -530,5 +541,148 @@ procdump(void)
         cprintf(" %p", pc[i]);
     }
     cprintf("\n");
+  }
+}
+
+// This call creates a new kernel thread which shares the calling process's address space
+int
+clone(void(*fcn)(void *, void *), void *arg1, void *arg2, void *stack)
+{
+  int i, pid;
+	struct proc *np;
+  struct proc *curproc = myproc();
+
+  // Allocate process.
+  if((np = allocproc()) == 0){
+    cprintf("----clone 0-----\n");
+    return -1;
+  }
+
+  // The stack should be one page in size and page-aligned.
+  if((uint) stack % PGSIZE != 0){
+    cprintf("----clone 1-----\n");
+    return -1;
+  }
+
+  if((curproc->sz - (uint)stack) < PGSIZE || (uint)(stack) > curproc->sz){
+    cprintf("----clone 2-----\n");
+    return -1;
+  }
+  
+  // Copy process state from proc.
+  np->pgdir = curproc->pgdir;
+  np->sz = curproc->sz;
+  np->parent = curproc;
+  *np->tf = *curproc->tf;
+
+  // Push fake return address, arg1 and arg2 to the stack
+  uint ustack[3];
+  uint sp = (uint)stack + PGSIZE;
+
+  ustack[0] = 0xffffffff;  // fake return PC
+  ustack[1] = (uint)arg1;
+  ustack[2] = (uint)arg2;
+
+  sp -= (3) * 4;
+  if(copyout(np->pgdir, sp, ustack, 12) < 0){
+    cprintf("----clone 3-----\n");
+    return -1;
+  }
+
+  // set the new stack pointer
+  np->tf->esp = sp;
+
+  // The new thread starts executing at the address specified by fcn
+  // set the instruction pointer to fcn
+  np->tf->eip = (uint) fcn;
+
+  // set the thread stack address to the new proc
+  np->tstack = stack;
+
+  // Clear %eax so that fork returns 0 in the child.
+  np->tf->eax = 0;
+
+  // np->tf->ebp = np->tf->esp;
+  for(i = 0; i < NOFILE; i++)
+    if(curproc->ofile[i])
+      np->ofile[i] = filedup(curproc->ofile[i]);
+  np->cwd = idup(curproc->cwd);
+
+  safestrcpy(np->name, curproc->name, sizeof(curproc->name));
+  pid = np->pid;
+  // add thread count
+  curproc->tcount++;
+  np->tcount = curproc->tcount;
+  cprintf("----clone 4-----\n");
+  acquire(&ptable.lock);
+
+  np->state = RUNNABLE;
+
+  release(&ptable.lock);
+  cprintf("----clone 5-----\n");
+  cprintf("----clone 6---pid--");
+  cprintf(" %d", pid);
+  cprintf("-----\n");
+  return pid;
+}
+
+
+// This call waits for a child thread that shares the address space with the calling process to exit
+int
+join (void **stack)
+{
+  cprintf("-------- enter join -------\n");
+  struct proc *p;
+  int havekids, pid;
+  struct proc *curproc = myproc();
+  cprintf("-------- enter join 0 -------\n");
+  if((curproc->sz-(uint)stack)< sizeof(void**)){
+    cprintf("-------- enter join 1 -------\n");
+    return -1;
+  }
+  
+  cprintf("-------- enter join 3 -------\n");
+  if((curproc->sz-(uint)stack)< sizeof(void**)){
+    return -1;
+  }
+  acquire(&ptable.lock);
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      cprintf("-------- join 0 -------\n");
+      // child thread should be on the same page as parent
+      if(p->parent != curproc || p->pgdir != curproc->pgdir)
+        continue;
+      havekids = 1;
+      cprintf("-------- join 1 -------\n");
+      if(p->state == ZOMBIE){
+        cprintf("-------- join 2 -------\n");
+        // Found one.
+        pid = p->pid;
+        curproc->tcount--;
+        kfree(p->kstack);
+        p->kstack = 0;
+        //freevm(p->pgdir);
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        p->state = UNUSED;
+        *stack = p->tstack;
+        release(&ptable.lock);
+        return pid;
+      }
+    }
+    cprintf("-------- join 3 -------\n");
+    // No point waiting if we don't have any children.
+    if(!havekids || curproc->killed){
+      release(&ptable.lock);
+      cprintf("-------- join 4 -------\n");
+      return -1;
+    }
+    cprintf("-------- join 5 -------\n");
+    // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+    sleep(curproc, &ptable.lock);  //DOC: wait-sleep
   }
 }
