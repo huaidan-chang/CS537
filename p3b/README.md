@@ -37,5 +37,6 @@ The new thread library functions including thread_create(), thread_join(), lock_
 
 ### Makefile
 Appending umalloc.o to the first line of the _forktest rule to avoid "undefined reference to malloc ulib.c" error.
-
+```
 $(LD) $(LDFLAGS) -N -e main -Ttext 0 -o _forktest forktest.o ulib.o usys.o umalloc.o
+```
