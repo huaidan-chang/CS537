@@ -15,6 +15,8 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "tracestat.h"
+
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -282,17 +284,95 @@ create(char *path, short type, short major, short minor)
   return ip;
 }
 
+struct tracestat GLOBAL_STAT = {
+    .trace_enabled = 0,
+    .trace_pathname = 0,
+    .trace_count = 0
+};
+
+int
+strcmp(const char *p, const char *q)
+{
+  while(*p && *p == *q)
+    p++, q++;
+  return (uchar)*p - (uchar)*q;
+}
+
+char*
+strcpy(char *s, const char *t)
+{
+  char *os;
+
+  os = s;
+  while((*s++ = *t++) != 0)
+    ;
+  return os;
+}
+
+
+int
+sys_trace(void)
+{
+  char* pathname;
+   if(argstr(0, &pathname) < 0){
+    return -1;
+   }
+
+  // if pathname is null return -1
+  if(pathname == 0){
+    return -1;
+  }
+
+  if(strlen(pathname) >= 256){
+      return 0;
+  }
+
+  // cprintf("sys_trace: trace_enabled");
+  // cprintf("-----sys_trace_path:%s;;;;" , pathname);
+  GLOBAL_STAT.trace_enabled = 1;
+  strcpy(GLOBAL_STAT.trace_pathname ,  pathname);
+  GLOBAL_STAT.trace_count = 0;
+
+  return 0;
+} 
+
+int
+sys_getcount(void)
+{
+  // cprintf("sys_getcount");
+  // cprintf("GLOBAL_STAT.trace_count: %d ", GLOBAL_STAT.trace_count);
+  //  cprintf("get_count ABC strcmp: %d ", strcmp("ABC", "ABC"));
+  return GLOBAL_STAT.trace_count;
+}
+
+
 int
 sys_open(void)
 {
-  char *path;
+  char* path;
   int fd, omode;
   struct file *f;
   struct inode *ip;
+  const char* trace_path = GLOBAL_STAT.trace_pathname;
+  int trace_enable = GLOBAL_STAT.trace_enabled;
+  
+//  cprintf("sys_open");
+//  cprintf("trace_enable: %d ", trace_enable);
 
   if(argstr(0, &path) < 0 || argint(1, &omode) < 0)
     return -1;
 
+  if(trace_enable == 1){
+
+      //  cprintf("-----path:%s;;;;" , path);
+      //  cprintf("-----trace_path:%s;;;;" , trace_path);
+
+    if (strcmp(path, trace_path) == 0) {
+      //  cprintf("the same");
+      //  cprintf("sys_open: trace_count++ ");
+        GLOBAL_STAT.trace_count++;
+    }
+  }
   begin_op();
 
   if(omode & O_CREATE){

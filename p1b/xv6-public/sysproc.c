@@ -6,6 +6,40 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+// #include "tracestat.h"
+// int
+// sys_trace(char *pathname)
+// {
+//   // if pathname is null return -1
+//   if(pathname == 0){
+//     return -1;
+//   }
+
+//   // if pathname is longer than 256 bytes
+//   int count = 0;
+//   while (count < 256 && *pathname) {
+//     count++;
+//     pathname++;
+//   }
+//   if (count >= 256 && *pathname) {
+//     return -1;
+//   }
+
+//   cprintf("sys_trace: trace_enabled\n");
+//   GLOBAL_STAT.trace_enabled = 1;
+//   GLOBAL_STAT.trace_pathname = pathname;
+//   GLOBAL_STAT.trace_count = 0;
+
+//   return 0;
+// } 
+
+// int
+// sys_getcount(void)
+// {
+//   cprintf("sys_getcount\n");
+//   cprintf("GLOBAL_STAT.trace_count: %d \n", GLOBAL_STAT.trace_count);
+//   return GLOBAL_STAT.trace_count;
+// }
 
 int
 sys_fork(void)

@@ -1,0 +1,1 @@
+trace() should return -1 if the pathname pointer is invalid

@@ -1,0 +1,1 @@
+before calling trace(), getcount() should always return 0.

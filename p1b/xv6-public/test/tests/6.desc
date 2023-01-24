@@ -1,0 +1,1 @@
+kernel should trace the filename passed into trace() consistently

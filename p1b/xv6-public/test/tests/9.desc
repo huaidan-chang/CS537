@@ -1,0 +1,1 @@
+test that trace counts how many times the file is opened across all processes
